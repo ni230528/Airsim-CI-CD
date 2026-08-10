@@ -1,22 +1,14 @@
 name: Release
 
-# Continuous Delivery, deliberately light: it produces the artifacts that a
-# GitHub-hosted runner can actually produce - the Python client distribution
-# and the rendered documentation site. Packaging the Unreal plugin needs a
-# Windows machine with Unreal Engine installed and is intentionally not part
-# of this pipeline.
 on:
   push:
     tags:
       - "v*"
   workflow_dispatch:
 
-# Creating a GitHub Release writes to the repository, so this workflow needs
-# more than the read-only default that CI uses.
 permissions:
   contents: write
 
-# Never cancel a release that is already running.
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
@@ -62,13 +54,9 @@ jobs:
           if-no-files-found: error
 
       - name: Create GitHub release
-        # Only a tag push produces a release; a manual run just leaves the
-        # artifacts attached to the workflow run for inspection.
         if: startsWith(github.ref, 'refs/tags/')
         env:
           GH_TOKEN: ${{ github.token }}
-        # gh is preinstalled on GitHub-hosted runners, so this needs no
-        # third-party action and no extra supply-chain trust.
         run: |
           gh release create "${GITHUB_REF_NAME}" \
             --title "${GITHUB_REF_NAME}" \

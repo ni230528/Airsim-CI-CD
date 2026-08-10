@@ -1,7 +1,5 @@
 name: CI
 
-# Cheap checks first, expensive ones after. Every job here runs on a
-# GitHub-hosted runner: no self-hosted machine, no GPU, no Unreal Engine.
 on:
   pull_request:
   push:
@@ -14,12 +12,9 @@ on:
         required: false
         default: release/1.16
 
-# The automatic GITHUB_TOKEN gets read-only access. CI never writes to the
-# repository; only the release workflow does.
 permissions:
   contents: read
 
-# A second push to the same ref cancels the first run still in flight.
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -28,9 +23,6 @@ env:
   PYTHON_VERSION: "3.11"
 
 jobs:
-  # ---------------------------------------------------------------------
-  # Tier 1 - seconds. Catches merge markers, broken YAML, broken docs.
-  # ---------------------------------------------------------------------
   static_checks:
     name: Static checks and docs
     runs-on: ubuntu-22.04
@@ -61,10 +53,6 @@ jobs:
       - name: Build documentation
         run: mkdocs build --strict
 
-  # ---------------------------------------------------------------------
-  # Tier 2 - a couple of minutes. Proves the client is packageable AND
-  # installable; building a wheel that cannot be imported is not a pass.
-  # ---------------------------------------------------------------------
   python_client:
     name: Python client package
     runs-on: ubuntu-22.04
@@ -100,21 +88,12 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-  # ---------------------------------------------------------------------
-  # Tier 3 - the part the old pipeline never covered: the ROS 2 packages
-  # and their unit / node-level tests. Runs inside the official ROS
-  # Humble container so the environment is pinned, not inherited from
-  # whatever the GitHub runner image happens to ship.
-  # ---------------------------------------------------------------------
   ros2_humble:
     name: ROS 2 Humble build and test
     runs-on: ubuntu-22.04
     container:
       image: ros:humble-ros-base
 
-    # px4_msgs is generated from the PX4 firmware tree and is not published
-    # to any apt repository, so CI builds it from source. The layouts that
-    # airsim_px4_offboard validates against match PX4 v1.16.
     env:
       PX4_MSGS_REF: ${{ inputs.px4_msgs_ref || 'release/1.16' }}
 
@@ -138,9 +117,6 @@ jobs:
             https://github.com/PX4/px4_msgs.git ros2/src/px4_msgs
 
       - name: Resolve ROS dependencies
-        # Only the packages this job actually builds. Pointing rosdep at the
-        # whole src/ would drag in airsim_ros_pkgs' PCL and MAVROS stack,
-        # which needs a compiled AirLib and belongs in a heavier job.
         run: |
           rosdep update --rosdistro "${ROS_DISTRO}"
           rosdep install -y --ignore-src --rosdistro "${ROS_DISTRO}" \
@@ -159,8 +135,6 @@ jobs:
 
       - name: Run tests
         working-directory: ros2
-        # colcon test exits 0 even when test cases fail; colcon test-result
-        # is what actually turns a failing test into a red pipeline.
         run: |
           source "/opt/ros/${ROS_DISTRO}/setup.bash"
           source install/setup.bash
