@@ -203,6 +203,12 @@ preinstalled `gh` CLI with the automatic token instead of a third-party action,
 and prepends the `docker pull` reference for the image to the auto-generated
 notes.
 
+The job deliberately does not check out the repository, because it only needs
+the artifacts. `gh` normally identifies the target repository by reading the
+git remotes of the working directory, which does not exist here, so `GH_REPO`
+is set explicitly instead. Without it the release step fails even though the
+token and permissions are correct.
+
 `permissions: contents: write` is scoped to this one job. Every other job in
 the workflow, and all of CI, stays read-only.
 
