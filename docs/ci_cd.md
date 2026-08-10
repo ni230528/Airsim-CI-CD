@@ -124,6 +124,14 @@ builds. The `clean_build` input on `workflow_dispatch` exists for that: it
 skips the cache entirely, which is worth running before cutting a release and
 whenever a result looks suspicious.
 
+That input is compared as a string in a separate step rather than tested
+directly with `if: ${{ !inputs.clean_build }}`. A `workflow_dispatch` input
+declared as `type: boolean` arrives in the expression context as the string
+`"false"`, and every non-empty string is truthy, so the negation was false and
+the cache step was silently skipped on every manually triggered run. Nothing
+failed; the build was simply six minutes slower with no indication why. The
+step now logs which branch it took, so the same mistake cannot hide again.
+
 ### Tests
 
 Tests then run with `colcon test`, followed by `colcon test-result --verbose`.

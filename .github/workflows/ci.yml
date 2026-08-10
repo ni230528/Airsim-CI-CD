@@ -141,8 +141,19 @@ jobs:
           echo "version=${version}" >> "$GITHUB_OUTPUT"
           echo "ros-${ROS_DISTRO}-ros-base ${version}"
 
+      - name: Decide whether to use the build cache
+        id: cachegate
+        run: |
+          if [ "${{ inputs.clean_build }}" = "true" ]; then
+            echo "use_cache=false" >> "$GITHUB_OUTPUT"
+            echo "clean_build requested: building from scratch"
+          else
+            echo "use_cache=true" >> "$GITHUB_OUTPUT"
+            echo "using the colcon build cache"
+          fi
+
       - name: Restore colcon build cache
-        if: ${{ !inputs.clean_build }}
+        if: steps.cachegate.outputs.use_cache == 'true'
         uses: actions/cache@v4
         with:
           path: |
