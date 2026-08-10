@@ -109,7 +109,6 @@ jobs:
         run: |
           apt-get update
           apt-get install -y --no-install-recommends git python3-pytest
-          rm -rf /var/lib/apt/lists/*
 
       - name: Fetch px4_msgs (${{ inputs.px4_msgs_ref || 'release/1.16' }})
         run: |
