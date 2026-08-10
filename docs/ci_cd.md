@@ -49,11 +49,35 @@ environment is pinned rather than inherited from whichever tools the GitHub
 runner image happens to ship.
 
 `px4_msgs` is generated from the PX4 firmware source tree and is not published
-to any apt repository, so the job clones and builds it from source. The
-message layouts that `airsim_px4_offboard/px4_schema.py` validates against
-match PX4 v1.16, so the default reference is `release/1.16`. A manual
-`workflow_dispatch` run accepts a different `px4_msgs_ref` input when testing
-against another firmware revision.
+to any apt repository, so the job fetches and builds it from source.
+
+The reference is pinned to the commit
+`b9bf3f9f76a6a5004880e2894fe94d1e43837e40` (2025-09-24) rather than to a
+branch, because **no released `px4_msgs` branch satisfies the layouts that
+`airsim_px4_offboard/px4_schema.py` validates against**:
+
+| Message | `px4_schema.py` requires | `release/1.16` | `main` | pinned commit |
+| --- | --- | --- | --- | --- |
+| `SensorGps` | `authentication_state`, `system_error` | absent | present | present |
+| `VehicleStatus` | `MESSAGE_VERSION` 1 | 1 | 4 | 1 |
+| `VehicleAttitude` | `MESSAGE_VERSION` 0 | 0 | - | 0 |
+| `VehicleOdometry` | `MESSAGE_VERSION` 0 | 0 | - | 0 |
+| `VehicleRatesSetpoint` | `MESSAGE_VERSION` 0 | 0 | - | 0 |
+
+`release/1.16` fails the `SensorGps` contract and `main` fails the
+`VehicleStatus` one, so the supported revision is a point on `main` after
+`SensorGps` gained those fields and before `VehicleStatus` was versioned past
+1. The documentation elsewhere in this repository describes the supported set
+as "PX4 v1.16.x", which is approximately but not exactly true.
+
+Because the pin is a commit rather than a branch, the job cannot use
+`git clone --branch`; it initialises the repository and fetches the single
+commit by sha instead. A manual `workflow_dispatch` run accepts a different
+`px4_msgs_ref` input, which may be a commit, branch or tag.
+
+Pinning a commit also keeps the pipeline reproducible. A branch is a moving
+target: a build that passes today can fail tomorrow with no change on this
+side.
 
 `rosdep install` runs with `--skip-keys ament_python`. The
 `airsim_px4_offboard` manifest declares `ament_python` as a `buildtool_depend`,

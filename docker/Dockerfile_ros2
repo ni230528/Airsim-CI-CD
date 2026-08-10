@@ -2,7 +2,7 @@ ARG ROS_DISTRO=humble
 FROM ros:${ROS_DISTRO}-ros-base
 
 ARG ROS_DISTRO
-ARG PX4_MSGS_REF=release/1.16
+ARG PX4_MSGS_REF=b9bf3f9f76a6a5004880e2894fe94d1e43837e40
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
@@ -19,9 +19,13 @@ RUN apt-get update && \
 WORKDIR ${AIRSIM_ROS2_WS}
 
 # px4_msgs is generated from the PX4 firmware tree and is not published to any
-# apt repository, so it is built from source and pinned to a firmware revision.
-RUN git clone --depth 1 --branch "${PX4_MSGS_REF}" \
-		https://github.com/PX4/px4_msgs.git src/px4_msgs && \
+# apt repository, so it is built from source. The ref is a commit rather than a
+# branch because no released branch carries the exact layouts px4_schema.py
+# validates against; fetch-by-sha is why this is not a plain git clone.
+RUN git init -q src/px4_msgs && \
+	git -C src/px4_msgs remote add origin https://github.com/PX4/px4_msgs.git && \
+	git -C src/px4_msgs fetch -q --depth 1 origin "${PX4_MSGS_REF}" && \
+	git -C src/px4_msgs checkout -q --detach FETCH_HEAD && \
 	rm -rf src/px4_msgs/.git
 
 # airsim_ros_pkgs is deliberately excluded: it is C++, depends on PCL and

@@ -8,9 +8,9 @@ on:
   workflow_dispatch:
     inputs:
       px4_msgs_ref:
-        description: px4_msgs branch or tag to build the ROS 2 job against
+        description: px4_msgs commit, branch or tag to build the ROS 2 job against
         required: false
-        default: release/1.16
+        default: b9bf3f9f76a6a5004880e2894fe94d1e43837e40
 
 permissions:
   contents: read
@@ -95,7 +95,7 @@ jobs:
       image: ros:humble-ros-base
 
     env:
-      PX4_MSGS_REF: ${{ inputs.px4_msgs_ref || 'release/1.16' }}
+      PX4_MSGS_REF: ${{ inputs.px4_msgs_ref || 'b9bf3f9f76a6a5004880e2894fe94d1e43837e40' }}
 
     defaults:
       run:
@@ -110,10 +110,13 @@ jobs:
           apt-get update
           apt-get install -y --no-install-recommends git python3-pytest
 
-      - name: Fetch px4_msgs (${{ inputs.px4_msgs_ref || 'release/1.16' }})
+      - name: Fetch px4_msgs
         run: |
-          git clone --depth 1 --branch "${PX4_MSGS_REF}" \
-            https://github.com/PX4/px4_msgs.git ros2/src/px4_msgs
+          echo "px4_msgs ref: ${PX4_MSGS_REF}"
+          git init -q ros2/src/px4_msgs
+          git -C ros2/src/px4_msgs remote add origin https://github.com/PX4/px4_msgs.git
+          git -C ros2/src/px4_msgs fetch -q --depth 1 origin "${PX4_MSGS_REF}"
+          git -C ros2/src/px4_msgs checkout -q --detach FETCH_HEAD
 
       - name: Resolve ROS dependencies
         run: |

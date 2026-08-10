@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       px4_msgs_ref:
-        description: px4_msgs branch or tag to build the ROS 2 image against
+        description: px4_msgs commit, branch or tag to build the ROS 2 image against
         required: false
-        default: release/1.16
+        default: b9bf3f9f76a6a5004880e2894fe94d1e43837e40
 
 permissions:
   contents: read
@@ -21,7 +21,7 @@ concurrency:
 env:
   PYTHON_VERSION: "3.11"
   ROS_DISTRO: humble
-  PX4_MSGS_REF: ${{ inputs.px4_msgs_ref || 'release/1.16' }}
+  PX4_MSGS_REF: ${{ inputs.px4_msgs_ref || 'b9bf3f9f76a6a5004880e2894fe94d1e43837e40' }}
 
 jobs:
   python_client:

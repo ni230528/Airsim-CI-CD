@@ -9,7 +9,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_DIR="$(dirname "${SCRIPT_DIR}")"
 
 ROS_DISTRO="${ROS_DISTRO:-humble}"
-PX4_MSGS_REF="${PX4_MSGS_REF:-release/1.16}"
+PX4_MSGS_REF="${PX4_MSGS_REF:-b9bf3f9f76a6a5004880e2894fe94d1e43837e40}"
 IMAGE="${IMAGE:-airsim-ros2:local}"
 
 echo "Building ${IMAGE} (ROS ${ROS_DISTRO}, px4_msgs ${PX4_MSGS_REF})"
