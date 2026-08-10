@@ -68,18 +68,73 @@ the job passed or failed.
 
 ## Release
 
-`release.yml` is triggered by pushing a `v*` tag. It builds the Python client
-distribution and a `docs-site.tar.gz` archive of the rendered documentation,
-uploads both as workflow artifacts, and then creates a GitHub Release with
-generated notes and both files attached.
+`release.yml` is triggered by pushing a `v*` tag. A tag rather than a branch is
+the trigger because a tag names exactly one commit, so every published artifact
+is traceable back to a single source state.
 
-Release creation uses the preinstalled `gh` CLI with the automatic
-`GITHUB_TOKEN` rather than a third-party action, which keeps the workflow free
-of external supply-chain trust. `permissions: contents: write` is scoped to
-this workflow only; CI stays read-only.
+It has five jobs. The three build jobs run in parallel; the two publishing jobs
+wait on them through `needs:`.
 
-A `workflow_dispatch` run performs every packaging step but skips release
-creation, so the artifacts can be inspected without publishing anything.
+| Job | Produces |
+| --- | --- |
+| `python_client` | sdist and wheel from `PythonClient` |
+| `docs_site` | `docs-site.tar.gz` of the rendered documentation |
+| `ros2_image` | container image published to GitHub Container Registry |
+| `promote_field` | retags the verified image as `:field` behind an approval gate |
+| `publish_release` | the GitHub Release itself |
+
+### ros2_image
+
+The primary deliverable. `docker/Dockerfile_ros2` builds the ROS 2 workspace -
+`airsim_interfaces`, `px4_msgs` and `airsim_px4_offboard` - into an image that
+carries a prebuilt `install/` tree and an entrypoint that sources it. Anything
+that can run a container then has the exact environment CI validated, with no
+`colcon build` on the target machine.
+
+Before the image is pushed it is started twice: once to assert the three
+packages appear in `ros2 pkg list`, and once to run the package test suite
+inside the image. An image that builds but cannot run its own tests is not a
+publishable result, and neither check requires the registry, so a failure never
+leaves a broken tag behind.
+
+Images are tagged with the release version and with `sim`. The image name is
+derived as `ghcr.io/<repository>/ros2` and lowercased in the workflow, because
+GHCR rejects references containing uppercase characters while a GitHub
+repository name may contain them.
+
+The registry login uses the automatic `GITHUB_TOKEN` with `packages: write`
+granted to that single job. No personal access token is involved.
+
+Note that GHCR packages are private on first publish even when the repository
+is public. Make the package public under its package settings if the image is
+meant to be pullable anonymously.
+
+### promote_field
+
+A deliberate model of staged rollout. `ros2_image` publishes the version tag
+and `sim` automatically, but moving the same digest to `:field` runs in the
+`field-drones` environment, so a required reviewer configured on that
+environment must approve before a build reaches hardware. Nothing is rebuilt:
+`docker buildx imagetools create` retags the digest that was already tested.
+
+Until the environment is created with protection rules under Settings ->
+Environments, the job runs without waiting. Adding the reviewer is what turns
+this from Continuous Deployment into Continuous Delivery.
+
+### publish_release
+
+Downloads the artifacts the build jobs produced rather than rebuilding them, so
+what is published is what was tested. It creates the Release through the
+preinstalled `gh` CLI with the automatic token instead of a third-party action,
+and prepends the `docker pull` reference for the image to the auto-generated
+notes.
+
+`permissions: contents: write` is scoped to this one job. Every other job in
+the workflow, and all of CI, stays read-only.
+
+A `workflow_dispatch` run performs every build and verification step but skips
+`promote_field` and `publish_release`, so the pipeline can be exercised end to
+end without publishing a release.
 
 ## What is deliberately not automated
 
@@ -114,6 +169,18 @@ docker run --rm -it -v "$PWD:/repo" -w /repo ros:humble-ros-base bash
 
 Then follow the same steps as the `ros2_humble` job: clone `px4_msgs` into
 `ros2/src`, run `rosdep install`, `colcon build` and `colcon test`.
+
+The release image is built and smoke-tested locally with the same arguments the
+pipeline uses:
+
+```bash
+./docker/build_ros2_image.sh
+```
+
+`ROS_DISTRO`, `PX4_MSGS_REF` and `IMAGE` are overridable as environment
+variables. A repository-root `.dockerignore` keeps the build context to the few
+megabytes the image actually needs instead of the full checkout, which is
+dominated by `Unreal` and `docs`.
 
 ## Pinned versions
 

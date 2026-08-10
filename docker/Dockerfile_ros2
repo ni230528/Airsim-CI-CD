@@ -1,0 +1,51 @@
+ARG ROS_DISTRO=humble
+FROM ros:${ROS_DISTRO}-ros-base
+
+ARG ROS_DISTRO
+ARG PX4_MSGS_REF=release/1.16
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV ROS_DISTRO=${ROS_DISTRO}
+ENV AIRSIM_ROS2_WS=/opt/airsim_ros2_ws
+
+RUN apt-get update && \
+	apt-get install -y --no-install-recommends \
+		git \
+		python3-pytest && \
+	rm -rf /var/lib/apt/lists/*
+
+WORKDIR ${AIRSIM_ROS2_WS}
+
+# px4_msgs is generated from the PX4 firmware tree and is not published to any
+# apt repository, so it is built from source and pinned to a firmware revision.
+RUN git clone --depth 1 --branch "${PX4_MSGS_REF}" \
+		https://github.com/PX4/px4_msgs.git src/px4_msgs && \
+	rm -rf src/px4_msgs/.git
+
+# airsim_ros_pkgs is deliberately excluded: it is C++, depends on PCL and
+# MAVROS, and needs a compiled AirLib.
+COPY ros2/src/airsim_interfaces src/airsim_interfaces
+COPY ros2/src/airsim_px4_offboard src/airsim_px4_offboard
+
+RUN apt-get update && \
+	rosdep update --rosdistro "${ROS_DISTRO}" && \
+	rosdep install -y --ignore-src --rosdistro "${ROS_DISTRO}" \
+		--from-paths \
+			src/airsim_interfaces \
+			src/airsim_px4_offboard \
+			src/px4_msgs && \
+	rm -rf /var/lib/apt/lists/*
+
+RUN source "/opt/ros/${ROS_DISTRO}/setup.bash" && \
+	colcon build \
+		--packages-up-to airsim_px4_offboard px4_msgs \
+		--cmake-args -DCMAKE_BUILD_TYPE=Release && \
+	rm -rf build log
+
+COPY docker/ros2_entrypoint.sh /ros2_entrypoint.sh
+RUN chmod +x /ros2_entrypoint.sh
+
+ENTRYPOINT ["/ros2_entrypoint.sh"]
+CMD ["bash"]

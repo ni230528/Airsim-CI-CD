@@ -1,0 +1,31 @@
+# Keeps the build context small for docker builds run from the repository root.
+# Unreal alone is ~305 MB and docs ~131 MB, while the ROS 2 sources the image
+# actually needs are ~1 MB. Add an exception here if a future Dockerfile needs
+# one of these paths.
+.git
+.github
+
+Unreal
+docs
+site
+external
+Matlab
+LogViewer
+SGM
+
+build
+build_release
+AirLib/lib
+AirLib/deps
+**/__pycache__
+*.pyc
+
+PythonClient/dist
+PythonClient/*.egg-info
+
+ros2/build
+ros2/install
+ros2/log
+ros/**/build
+ros/**/install
+ros/**/devel
