@@ -11,6 +11,11 @@ on:
         description: px4_msgs commit, branch or tag to build the ROS 2 job against
         required: false
         default: b9bf3f9f76a6a5004880e2894fe94d1e43837e40
+      clean_build:
+        description: Ignore the colcon cache and build the workspace from scratch
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -127,6 +132,24 @@ jobs:
               ros2/src/airsim_interfaces \
               ros2/src/airsim_px4_offboard \
               ros2/src/px4_msgs
+
+      - name: Identify the ROS base packages
+        id: rosbase
+        run: |
+          version="$(dpkg-query -W -f='${Version}' "ros-${ROS_DISTRO}-ros-base" 2>/dev/null || echo unknown)"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "ros-${ROS_DISTRO}-ros-base ${version}"
+
+      - name: Restore colcon build cache
+        if: ${{ !inputs.clean_build }}
+        uses: actions/cache@v4
+        with:
+          path: |
+            ros2/build
+            ros2/install
+          key: colcon-${{ runner.os }}-${{ env.ROS_DISTRO }}-${{ steps.rosbase.outputs.version }}-px4_${{ env.PX4_MSGS_REF }}-src-${{ hashFiles('ros2/src/airsim_interfaces/**', 'ros2/src/airsim_px4_offboard/**') }}
+          restore-keys: |
+            colcon-${{ runner.os }}-${{ env.ROS_DISTRO }}-${{ steps.rosbase.outputs.version }}-px4_${{ env.PX4_MSGS_REF }}-src-
 
       - name: Build workspace
         working-directory: ros2

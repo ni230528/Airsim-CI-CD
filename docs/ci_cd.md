@@ -91,6 +91,41 @@ The job builds `--packages-up-to airsim_px4_offboard px4_msgs`, which covers
 does not build `airsim_ros_pkgs`: that package is C++, depends on PCL and
 MAVROS, and needs a compiled AirLib, which belongs in a heavier job.
 
+### Build caching
+
+Building the workspace from scratch takes around six minutes, roughly 87% of
+the run, and almost all of it is `rosidl` generating code for the several
+hundred `px4_msgs` message types. Those messages are pinned to a fixed commit
+and never change between runs, so `ros2/build` and `ros2/install` are cached.
+
+The cache key is composed of everything that can legitimately invalidate the
+tree:
+
+| Key component | Invalidates when |
+| --- | --- |
+| `runner.os` | the runner platform changes |
+| `ROS_DISTRO` | the distribution changes |
+| `ros-<distro>-ros-base` package version | the container's ROS packages are updated upstream |
+| `PX4_MSGS_REF` | the pinned `px4_msgs` commit is changed |
+| hash of the two package source trees | any source file changes |
+
+The container image tag `ros:humble-ros-base` is mutable, so the base package
+version is read at runtime with `dpkg-query` and folded into the key. Without
+it a cached tree could outlive the toolchain it was built with.
+
+`restore-keys` provides the partial-hit fallback that produces most of the
+saving: when only the AirSim sources change, the exact key misses but the
+prefix key still matches, the `px4_msgs` build is restored, and colcon rebuilds
+only the two small packages.
+
+The trade-off is real. A restored build tree can let a run pass where a clean
+build would fail, because a stale artifact satisfies something that no longer
+builds. The `clean_build` input on `workflow_dispatch` exists for that: it
+skips the cache entirely, which is worth running before cutting a release and
+whenever a result looks suspicious.
+
+### Tests
+
 Tests then run with `colcon test`, followed by `colcon test-result --verbose`.
 The second command is not redundant. `colcon test` exits 0 even when
 individual test cases fail; `colcon test-result` is what turns a failing test
