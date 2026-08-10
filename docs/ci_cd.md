@@ -152,10 +152,20 @@ wait on them through `needs:`.
 | Job | Produces |
 | --- | --- |
 | `python_client` | sdist and wheel from `PythonClient` |
-| `docs_site` | `docs-site.tar.gz` of the rendered documentation |
+| `docs_site` | the rendered documentation, as a Pages artifact |
+| `deploy_docs` | publishes that artifact to GitHub Pages |
 | `ros2_image` | container image published to GitHub Container Registry |
 | `promote_field` | retags the verified image as `:field` behind an approval gate |
 | `publish_release` | the GitHub Release itself |
+
+`deploy_docs` requires Pages to be enabled for the repository with its source
+set to GitHub Actions, under Settings -> Pages. The job deploys into the
+`github-pages` environment, which GitHub manages itself.
+
+Documentation is deployed rather than attached to the release. An earlier
+version shipped a `docs-site.tar.gz` asset, which came to 127 MB because the
+`docs` directory is mostly images; every release would have carried that
+weight, and a tarball is a poor way to read documentation compared with a URL.
 
 ### ros2_image
 
@@ -208,6 +218,12 @@ the artifacts. `gh` normally identifies the target repository by reading the
 git remotes of the working directory, which does not exist here, so `GH_REPO`
 is set explicitly instead. Without it the release step fails even though the
 token and permissions are correct.
+
+A tag whose name contains a hyphen is published with `--prerelease`, following
+the semver rule that anything after the hyphen is a pre-release identifier.
+GitHub does not infer this: without the flag, `v0.0.1-rc2` was published as a
+full release and labelled Latest, so anything reading `releases/latest` would
+have been handed a release candidate.
 
 `permissions: contents: write` is scoped to this one job. Every other job in
 the workflow, and all of CI, stays read-only.
