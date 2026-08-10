@@ -32,6 +32,7 @@ COPY ros2/src/airsim_px4_offboard src/airsim_px4_offboard
 RUN apt-get update && \
 	rosdep update --rosdistro "${ROS_DISTRO}" && \
 	rosdep install -y --ignore-src --rosdistro "${ROS_DISTRO}" \
+		--skip-keys ament_python \
 		--from-paths \
 			src/airsim_interfaces \
 			src/airsim_px4_offboard \

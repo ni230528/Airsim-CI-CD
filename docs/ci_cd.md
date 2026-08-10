@@ -55,6 +55,13 @@ match PX4 v1.16, so the default reference is `release/1.16`. A manual
 `workflow_dispatch` run accepts a different `px4_msgs_ref` input when testing
 against another firmware revision.
 
+`rosdep install` runs with `--skip-keys ament_python`. The
+`airsim_px4_offboard` manifest declares `ament_python` as a `buildtool_depend`,
+but `ament_python` is a colcon build type rather than a released package, so no
+rosdep key of that name exists and resolution fails without the skip. Removing
+that line from `package.xml` would be the deeper fix; the export block already
+declares the build type correctly.
+
 The job builds `--packages-up-to airsim_px4_offboard px4_msgs`, which covers
 `airsim_interfaces`, `px4_msgs` and `airsim_px4_offboard`. It deliberately
 does not build `airsim_ros_pkgs`: that package is C++, depends on PCL and
