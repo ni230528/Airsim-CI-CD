@@ -1,0 +1,6 @@
+# Tooling pinned for CI so a pipeline run is reproducible.
+# Bump these deliberately, in their own commit, so a red build is never
+# ambiguous between "our change broke it" and "a dependency released today".
+build==1.2.2.post1
+mkdocs==1.6.1
+PyYAML==6.0.2

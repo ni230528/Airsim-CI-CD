@@ -1,60 +1,122 @@
 # CI/CD
 
-This repository includes both GitLab CI/CD and GitHub Actions workflow files. The current `origin` remote is GitLab, so `.gitlab-ci.yml` is the pipeline that runs after pushes to the project remote.
+Automation for this repository is GitHub Actions only. Two workflows live in
+`.github/workflows`:
 
-The automation has two levels:
+| Workflow | File | Runs on |
+| --- | --- | --- |
+| CI | `ci.yml` | every pull request, every push to `main`, manual dispatch |
+| Release | `release.yml` | every `v*` tag, manual dispatch |
 
-1. Hosted or Docker CI validates text hygiene, Python packaging, documentation, and Linux AirLib builds.
-2. Windows runner jobs can build AirLib and package the Unreal plugin with Unreal Engine 5.5.
+Everything runs on GitHub-hosted runners. No self-hosted machine, no GPU and
+no Unreal Engine installation is required to get a green pipeline.
 
-## GitLab CI
+## CI
 
-The GitLab pipeline runs for merge requests, pushes to the default branch, tags, and manually started web pipelines. It performs:
+`ci.yml` defines three independent jobs. None of them declares `needs:`, so
+all three start at once and the total wall-clock time is the slowest job
+rather than the sum of all of them.
 
-- repository text checks for unresolved merge markers and mixed line endings inside individual files;
-- GitHub Actions and GitLab CI YAML parsing;
-- Python bytecode compilation for `PythonClient`;
-- Python package build from `PythonClient/pyproject.toml`;
-- MkDocs strict documentation build;
-- AirLib builds on Ubuntu 22.04 and Ubuntu 24.04.
+### static_checks
 
-The repository intentionally preserves both LF and CRLF files through `.gitattributes`. CI only fails a file when that single file mixes line endings.
+Seconds-long checks that fail fast on mistakes which never need a compiler:
 
-## Windows Jobs
+- `tools/ci/check_repo_text.py` rejects unresolved merge conflict markers and
+  files that mix LF and CRLF internally. The repository intentionally keeps
+  both endings across different files through `.gitattributes`, so only
+  mixing *inside a single file* is an error. Five legacy `LogViewer` files are
+  explicitly exempt.
+- `tools/ci/validate_ci_yaml.py` parses every workflow file and asserts the
+  structure GitHub expects: a `name`, an `on` trigger block, at least one job,
+  a `runs-on` per job, at least one step per job, and exactly one of `run` or
+  `uses` per step.
+- `python -m compileall` byte-compiles `PythonClient`, `tools/ci` and
+  `ros2/src`, which catches syntax errors without importing anything.
+- `mkdocs build --strict` renders this documentation and fails on broken
+  internal links.
 
-The GitLab `build_windows` job is manual by default, or automatic when the pipeline variable `RUN_WINDOWS_CI` is set to `true`. It requires a Windows runner tagged with `windows` and `vs2022`.
+### python_client
 
-The `package_unreal_windows` job is manual for tags and manually started pipelines. It requires a Windows runner tagged with `windows` and `unreal`.
+Builds the sdist and wheel from `PythonClient/pyproject.toml`, then installs
+the wheel into a clean virtualenv and imports `cosysairsim` from it. A wheel
+that builds but cannot be installed or imported is not a passing result. The
+distribution is uploaded as the `python-client-dist` artifact.
 
-Runner requirements:
+### ros2_humble
 
-- Windows x64 runner;
-- Unreal Engine 5.5 installed, by default at `C:\Program Files\Epic Games\UE_5.5`;
-- Visual Studio 2022 with Desktop Development with C++;
-- Git LFS enabled if release assets are needed.
+Runs inside the official `ros:humble-ros-base` container so the ROS
+environment is pinned rather than inherited from whichever tools the GitHub
+runner image happens to ship.
 
-The Unreal package job runs:
+`px4_msgs` is generated from the PX4 firmware source tree and is not published
+to any apt repository, so the job clones and builds it from source. The
+message layouts that `airsim_px4_offboard/px4_schema.py` validates against
+match PX4 v1.16, so the default reference is `release/1.16`. A manual
+`workflow_dispatch` run accepts a different `px4_msgs_ref` input when testing
+against another firmware revision.
 
-1. `build.cmd --no-full-poly-car --Release`
-2. `Unreal/Environments/Blocks/update_from_git.bat`
-3. `Build.bat BlocksEditor Win64 Development`
-4. `RunUAT.bat BuildPlugin`
-5. artifact upload as `AirSimPlugin-Win64.zip`
+The job builds `--packages-up-to airsim_px4_offboard px4_msgs`, which covers
+`airsim_interfaces`, `px4_msgs` and `airsim_px4_offboard`. It deliberately
+does not build `airsim_ros_pkgs`: that package is C++, depends on PCL and
+MAVROS, and needs a compiled AirLib, which belongs in a heavier job.
 
-## GitHub Actions
+Tests then run with `colcon test`, followed by `colcon test-result --verbose`.
+The second command is not redundant. `colcon test` exits 0 even when
+individual test cases fail; `colcon test-result` is what turns a failing test
+into a red pipeline. Test reports are uploaded as `ros2-test-results` whether
+the job passed or failed.
 
-The `.github/workflows` files mirror the same checks for GitHub-hosted usage. They are useful if the repository is mirrored to GitHub, but GitLab will not execute them.
+## Release
 
-## Local Checks
+`release.yml` is triggered by pushing a `v*` tag. It builds the Python client
+distribution and a `docs-site.tar.gz` archive of the rendered documentation,
+uploads both as workflow artifacts, and then creates a GitHub Release with
+generated notes and both files attached.
 
-Before pushing CI/CD changes, run:
+Release creation uses the preinstalled `gh` CLI with the automatic
+`GITHUB_TOKEN` rather than a third-party action, which keeps the workflow free
+of external supply-chain trust. `permissions: contents: write` is scoped to
+this workflow only; CI stays read-only.
 
-```powershell
-python tools\ci\check_repo_text.py
-python -m compileall -q PythonClient tools\ci
-python -m build PythonClient
-python -m mkdocs build --strict
-build.cmd --no-full-poly-car --Release
+A `workflow_dispatch` run performs every packaging step but skips release
+creation, so the artifacts can be inspected without publishing anything.
+
+## What is deliberately not automated
+
+- **Unreal plugin packaging.** `RunUAT BuildPlugin` needs a Windows machine
+  with Unreal Engine 5.5 and Visual Studio 2022. That requires a self-hosted
+  runner and is done manually, see
+  [Install from Source on Windows](install_windows.md).
+- **AirLib C++ builds.** A full `build.sh` run costs roughly twenty minutes of
+  runner time per push. Add a job for it if the C++ sources start changing
+  regularly.
+- **Simulation-in-the-loop tests.** Anything that actually launches AirSim
+  needs a GPU, which GitHub-hosted runners do not provide.
+
+## Running the same checks locally
+
+Before pushing a change to CI, run what the `static_checks` job runs:
+
+```bash
+python -m pip install -r tools/ci/requirements.txt
+python tools/ci/check_repo_text.py
+python tools/ci/validate_ci_yaml.py
+python -m compileall -q PythonClient tools/ci ros2/src
+mkdocs build --strict
 ```
 
-Use `C:\Program Files\Epic Games\UE_5.5` or override `UE_ROOT` in the GitLab pipeline variables if Unreal is installed somewhere else.
+The ROS 2 job is reproducible locally with the same container the pipeline
+uses:
+
+```bash
+docker run --rm -it -v "$PWD:/repo" -w /repo ros:humble-ros-base bash
+```
+
+Then follow the same steps as the `ros2_humble` job: clone `px4_msgs` into
+`ros2/src`, run `rosdep install`, `colcon build` and `colcon test`.
+
+## Pinned versions
+
+`tools/ci/requirements.txt` pins the Python tooling used by CI. Bump those
+pins in their own commit so that a red pipeline is never ambiguous between a
+regression in this repository and a dependency that released the same day.

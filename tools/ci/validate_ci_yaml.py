@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""Validate CI YAML files beyond generic YAML parsing."""
+"""Validate the GitHub Actions workflow files beyond generic YAML parsing.
+
+A workflow file can be perfectly valid YAML and still be a broken workflow:
+a job with no steps, a step that is neither `run` nor `uses`, a trigger block
+that got lost in a bad merge. GitHub only reports those once the workflow has
+been pushed, so this check runs locally and in CI instead.
+"""
 
 from __future__ import annotations
 
@@ -10,71 +16,116 @@ from typing import Any
 import yaml
 
 
-RESERVED_GITLAB_TOP_LEVEL_KEYS = {
-    "default",
-    "include",
-    "stages",
-    "workflow",
-    "variables",
-    "cache",
-    "image",
-    "services",
-    "before_script",
-    "after_script",
-}
+WORKFLOW_DIR = Path(".github/workflows")
+
+# YAML 1.1 resolves the bare word `on` to the boolean True, so PyYAML turns
+# the workflow trigger block into the key True rather than the string "on".
+# Both spellings are accepted here: `on:` and the quoted `"on":`.
+ON_KEYS = (True, "on")
 
 
-def validate_script_value(value: Any, path: str, depth: int = 0) -> list[str]:
-    if depth > 10:
-        return [f"{path}: nested array is deeper than 10 levels"]
+def load_workflow(path: Path) -> tuple[Any, list[str]]:
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            return yaml.safe_load(handle), []
+    except yaml.YAMLError as error:
+        return None, [f"{path}: is not valid YAML ({error.__class__.__name__})"]
 
-    if isinstance(value, str):
+
+def validate_step(step: Any, where: str) -> list[str]:
+    if not isinstance(step, dict):
+        return [f"{where}: expected a mapping, got {type(step).__name__}"]
+
+    has_run = "run" in step
+    has_uses = "uses" in step
+
+    if has_run and has_uses:
+        return [f"{where}: declares both `run` and `uses`; a step must do exactly one"]
+    if not has_run and not has_uses:
+        return [f"{where}: declares neither `run` nor `uses`"]
+    if has_run and not isinstance(step["run"], str):
+        return [f"{where}: `run` must be a string, got {type(step['run']).__name__}"]
+
+    return []
+
+
+def validate_job(name: str, job: Any, where: str) -> list[str]:
+    if not isinstance(job, dict):
+        return [f"{where}: expected a mapping, got {type(job).__name__}"]
+
+    # A job either runs steps on a runner, or delegates to a reusable workflow.
+    if "uses" in job:
         return []
 
-    if isinstance(value, list):
-        failures: list[str] = []
-        for index, item in enumerate(value):
-            failures.extend(validate_script_value(item, f"{path}[{index}]", depth + 1))
+    failures: list[str] = []
+
+    if "runs-on" not in job:
+        failures.append(f"{where}: has no `runs-on`")
+
+    steps = job.get("steps")
+    if not isinstance(steps, list) or not steps:
+        failures.append(f"{where}: has no steps")
         return failures
 
-    return [f"{path}: expected string or nested array of strings, got {type(value).__name__}"]
+    for index, step in enumerate(steps):
+        failures.extend(validate_step(step, f"{where}.steps[{index}]"))
+
+    return failures
 
 
-def validate_gitlab_ci(path: Path, data: Any) -> list[str]:
+def validate_workflow(path: Path, data: Any) -> list[str]:
     if not isinstance(data, dict):
-        return [f"{path}: expected mapping at document root"]
+        return [f"{path}: expected a mapping at the document root"]
 
     failures: list[str] = []
-    for job_name, job_config in data.items():
-        if job_name in RESERVED_GITLAB_TOP_LEVEL_KEYS or not isinstance(job_config, dict):
-            continue
 
-        for key in ("before_script", "script", "after_script"):
-            if key in job_config:
-                failures.extend(validate_script_value(job_config[key], f"{path}:{job_name}:{key}"))
+    if not any(key in data for key in ON_KEYS):
+        failures.append(f"{path}: has no `on` trigger block")
+
+    if "name" not in data:
+        failures.append(f"{path}: has no `name`")
+
+    jobs = data.get("jobs")
+    if not isinstance(jobs, dict) or not jobs:
+        failures.append(f"{path}: has no jobs")
+        return failures
+
+    for job_name, job in jobs.items():
+        failures.extend(validate_job(job_name, job, f"{path}:{job_name}"))
 
     return failures
 
 
 def main() -> int:
-    workflow_paths = list(Path(".github/workflows").glob("*.yml")) + [Path(".gitlab-ci.yml")]
+    workflows = sorted(
+        set(WORKFLOW_DIR.glob("*.yml")) | set(WORKFLOW_DIR.glob("*.yaml"))
+    )
+
+    if not workflows:
+        print(f"No workflow files found under {WORKFLOW_DIR}", file=sys.stderr)
+        return 1
+
     failures: list[str] = []
 
-    for workflow in workflow_paths:
-        with workflow.open("r", encoding="utf-8") as handle:
-            data = yaml.safe_load(handle)
+    for workflow in workflows:
+        data, load_failures = load_workflow(workflow)
+        if load_failures:
+            failures.extend(load_failures)
+            continue
 
-        if workflow.name == ".gitlab-ci.yml":
-            failures.extend(validate_gitlab_ci(workflow, data))
+        workflow_failures = validate_workflow(workflow, data)
+        failures.extend(workflow_failures)
 
-        print(f"validated {workflow}")
+        status = "FAILED" if workflow_failures else "ok"
+        print(f"{status}: {workflow}")
 
     if failures:
-        print("CI YAML validation failed:", file=sys.stderr)
+        print("Workflow validation failed:", file=sys.stderr)
         for failure in failures:
             print(f"  {failure}", file=sys.stderr)
         return 1
 
+    print(f"Validated {len(workflows)} workflow file(s).")
     return 0
 
 
