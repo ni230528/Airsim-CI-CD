@@ -100,6 +100,7 @@ jobs:
       image: ros:humble-ros-base
 
     env:
+      ROS_DISTRO: humble
       PX4_MSGS_REF: ${{ inputs.px4_msgs_ref || 'b9bf3f9f76a6a5004880e2894fe94d1e43837e40' }}
 
     defaults:
@@ -158,6 +159,7 @@ jobs:
           colcon build \
             --packages-up-to airsim_px4_offboard px4_msgs \
             --event-handlers console_direct+
+          du -sh build install
 
       - name: Run tests
         working-directory: ros2
