@@ -244,12 +244,69 @@ A `workflow_dispatch` run performs every build and verification step but skips
 `promote_field` and `publish_release`, so the pipeline can be exercised end to
 end without publishing a release.
 
+## Unreal Plugin Package
+
+`unreal-package.yml` builds the AirSim Unreal plugin and attaches
+`AirSimPlugin-Win64.zip` to the release for the same tag. It is the artifact
+described in
+[Download and install precompiled Plugin](install_precompiled.md): a user who
+already has Unreal Engine 5.5 unzips it into their own project instead of
+building from source.
+
+It is a separate workflow rather than a job inside `release.yml` on purpose. It
+runs on a self-hosted machine and takes an hour or more, while the rest of the
+release finishes in minutes. Keeping it apart means an unavailable runner
+delays only the plugin, and the wheel, the container image and the release
+itself are published regardless. The upload assumes the release already exists,
+which holds comfortably: `release.yml` creates it within about eight minutes
+and this workflow reaches the upload step much later.
+
+### Runner requirements
+
+The job targets a runner labelled `self-hosted`, `Windows`, `X64` and `unreal`.
+That machine needs:
+
+- Windows 10 or 11 x64;
+- Unreal Engine 5.5, by default at `C:\Program Files\Epic Games\UE_5.5`,
+  overridable through the `ue_root` input;
+- Visual Studio 2022 with the Desktop development with C++ workload, since
+  `build.cmd` refuses to run unless `VisualStudioVersion` and `VCINSTALLDIR`
+  are set;
+- the GitHub CLI, used to attach the asset;
+- roughly 150-200 GB of free disk.
+
+The first step verifies all of this and fails with a specific message rather
+than letting a missing tool surface as a confusing compiler error an hour in.
+Visual Studio is located with `vswhere` instead of a hardcoded path, so the
+edition and install location do not matter, and no third-party action is
+involved. That matters more here than on hosted runners: a marketplace action
+in this job would execute on a real machine that persists between runs.
+
+### Self-hosted runners on a public repository
+
+GitHub advises against attaching self-hosted runners to public repositories,
+because a workflow triggered by a fork's pull request would run that fork's
+code on the machine. This workflow triggers only on tag pushes and manual
+dispatch, and only accounts with push access can create a tag, so the exposure
+is closed. **Do not add a `pull_request` trigger to this workflow**, and do not
+move its job into a workflow that has one.
+
+### Without a runner
+
+Until a machine is registered, a `v*` tag will create a run for this workflow
+that queues indefinitely. Cancel it, or package manually following
+[Packaging](packaging.md) and attach the result to the existing release:
+
+```bash
+gh release upload v0.1.0 AirSimPlugin-Win64.zip
+```
+
+That covers most of the value without any infrastructure, at the cost of
+depending on someone remembering, and with no guarantee that the uploaded zip
+was built from the tagged commit.
+
 ## What is deliberately not automated
 
-- **Unreal plugin packaging.** `RunUAT BuildPlugin` needs a Windows machine
-  with Unreal Engine 5.5 and Visual Studio 2022. That requires a self-hosted
-  runner and is done manually, see
-  [Install from Source on Windows](install_windows.md).
 - **AirLib C++ builds.** A full `build.sh` run costs roughly twenty minutes of
   runner time per push. Add a job for it if the C++ sources start changing
   regularly.

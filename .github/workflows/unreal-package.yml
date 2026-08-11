@@ -1,0 +1,138 @@
+name: Unreal Plugin Package
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      ue_root:
+        description: Unreal Engine installation root
+        required: true
+        default: "C:\\Program Files\\Epic Games\\UE_5.5"
+      target_platforms:
+        description: RunUAT BuildPlugin target platforms
+        required: true
+        default: Win64
+
+permissions:
+  contents: write
+
+concurrency:
+  group: unreal-package-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  package_windows_plugin:
+    name: Package AirSim plugin for Windows
+    runs-on:
+      - self-hosted
+      - Windows
+      - X64
+      - unreal
+
+    timeout-minutes: 180
+
+    env:
+      UE_ROOT: ${{ inputs.ue_root || 'C:\Program Files\Epic Games\UE_5.5' }}
+      TARGET_PLATFORMS: ${{ inputs.target_platforms || 'Win64' }}
+      PACKAGE_DIR: ${{ github.workspace }}\artifacts\AirSimPlugin
+      PACKAGE_ZIP: ${{ github.workspace }}\artifacts\AirSimPlugin-Win64.zip
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify the toolchain
+        shell: pwsh
+        run: |
+          $batchFiles = Join-Path $env:UE_ROOT "Engine\Build\BatchFiles"
+          foreach ($file in @("RunUAT.bat", "Build.bat")) {
+            $path = Join-Path $batchFiles $file
+            if (-not (Test-Path $path)) {
+              throw "$file not found at $path. Set UE_ROOT to the Unreal Engine 5.5 installation."
+            }
+          }
+
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
+          if (-not (Test-Path $vswhere)) {
+            throw "vswhere.exe not found at $vswhere. Visual Studio 2022 does not appear to be installed."
+          }
+          $vs = & $vswhere -latest -products * `
+            -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
+            -property installationPath
+          if (-not $vs) {
+            throw "No Visual Studio installation carrying the x64 C++ toolset was found."
+          }
+          Write-Host "Visual Studio: $vs"
+
+          if (-not (Get-Command gh -ErrorAction SilentlyContinue)) {
+            throw "The GitHub CLI is required to attach the package to a release. Install it with: winget install --id GitHub.cli"
+          }
+
+      - name: Build AirLib
+        shell: cmd
+        run: |
+          set "VSWHERE=%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe"
+          for /f "usebackq delims=" %%i in (`"%VSWHERE%" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set "VSPATH=%%i"
+          if not defined VSPATH exit /b 1
+          call "%VSPATH%\Common7\Tools\VsDevCmd.bat" -arch=x64 || exit /b 1
+          call build.cmd --no-full-poly-car --Release || exit /b 1
+
+      - name: Sync plugin into the Blocks project
+        shell: cmd
+        working-directory: Unreal\Environments\Blocks
+        run: update_from_git.bat ..\..\..
+
+      - name: Build the Blocks editor target
+        shell: pwsh
+        working-directory: Unreal\Environments\Blocks
+        run: |
+          $build = Join-Path $env:UE_ROOT "Engine\Build\BatchFiles\Build.bat"
+          & $build BlocksEditor Win64 Development -Project="$PWD\Blocks.uproject" -WaitMutex -NoHotReload
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Package the plugin
+        shell: pwsh
+        run: |
+          $runUat = Join-Path $env:UE_ROOT "Engine\Build\BatchFiles\RunUAT.bat"
+          $plugin = Join-Path $PWD "Unreal\Environments\Blocks\Plugins\AirSim\AirSim.uplugin"
+          if (-not (Test-Path $plugin)) { throw "Plugin descriptor not found at $plugin" }
+          if (Test-Path $env:PACKAGE_DIR) { Remove-Item -LiteralPath $env:PACKAGE_DIR -Recurse -Force }
+          & $runUat BuildPlugin -Plugin="$plugin" -Package="$env:PACKAGE_DIR" -Rocket -TargetPlatforms="$env:TARGET_PLATFORMS"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Verify the packaged plugin
+        shell: pwsh
+        run: |
+          $descriptor = Join-Path $env:PACKAGE_DIR "AirSim.uplugin"
+          if (-not (Test-Path $descriptor)) { throw "Packaged plugin is missing AirSim.uplugin" }
+          $binaries = Join-Path $env:PACKAGE_DIR "Binaries"
+          if (-not (Test-Path $binaries)) { throw "Packaged plugin contains no Binaries directory" }
+          $size = (Get-ChildItem -LiteralPath $env:PACKAGE_DIR -Recurse -File |
+                   Measure-Object -Property Length -Sum).Sum
+          Write-Host "Packaged plugin size: $([math]::Round($size / 1MB, 1)) MB"
+          if ($size -lt 1MB) { throw "Packaged plugin is implausibly small" }
+
+      - name: Compress the package
+        shell: pwsh
+        run: |
+          if (Test-Path $env:PACKAGE_ZIP) { Remove-Item -LiteralPath $env:PACKAGE_ZIP -Force }
+          Compress-Archive -Path "$env:PACKAGE_DIR\*" -DestinationPath $env:PACKAGE_ZIP
+
+      - name: Upload package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AirSimPlugin-Win64
+          path: ${{ env.PACKAGE_ZIP }}
+          if-no-files-found: error
+
+      - name: Attach the package to the release
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release upload "$env:GITHUB_REF_NAME" "$env:PACKAGE_ZIP" --clobber
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
