@@ -160,10 +160,22 @@ wait on them through `needs:`.
 
 `deploy_docs` deploys into the `github-pages` environment, which GitHub manages
 itself. Pages must be enabled for the repository with its source set to GitHub
-Actions; `docs_site` runs `actions/configure-pages` with `enablement: true` so
-the pipeline sets that up itself rather than depending on someone having
-clicked the right radio button. Without it, `actions/deploy-pages` fails with a
-404 and the message `Ensure GitHub Pages has been enabled`.
+Actions, under Settings -> Pages, before this job can succeed; otherwise
+`actions/deploy-pages` fails with a 404 and the message
+`Ensure GitHub Pages has been enabled`.
+
+That step cannot be automated with the workflow's own token.
+`actions/configure-pages` with `enablement: true` fails as
+`Resource not accessible by integration`: `GITHUB_TOKEN` can deploy to Pages
+with `pages: write`, but creating the Pages site needs repository admin rights.
+Automating it would mean storing a long-lived personal access token with admin
+scope, which is a worse trade than enabling the setting once.
+
+`publish_release` does not depend on `docs_site`. Documentation is deployed to
+Pages rather than attached to the release, so a Pages problem must not block
+publishing the wheel and the container image. An earlier version kept the
+dependency from when the release carried a documentation tarball, and a failing
+docs build silently skipped the whole release.
 
 Documentation is deployed rather than attached to the release. An earlier
 version shipped a `docs-site.tar.gz` asset, which came to 127 MB because the
