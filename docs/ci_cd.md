@@ -158,9 +158,12 @@ wait on them through `needs:`.
 | `promote_field` | retags the verified image as `:field` behind an approval gate |
 | `publish_release` | the GitHub Release itself |
 
-`deploy_docs` requires Pages to be enabled for the repository with its source
-set to GitHub Actions, under Settings -> Pages. The job deploys into the
-`github-pages` environment, which GitHub manages itself.
+`deploy_docs` deploys into the `github-pages` environment, which GitHub manages
+itself. Pages must be enabled for the repository with its source set to GitHub
+Actions; `docs_site` runs `actions/configure-pages` with `enablement: true` so
+the pipeline sets that up itself rather than depending on someone having
+clicked the right radio button. Without it, `actions/deploy-pages` fails with a
+404 and the message `Ensure GitHub Pages has been enabled`.
 
 Documentation is deployed rather than attached to the release. An earlier
 version shipped a `docs-site.tar.gz` asset, which came to 127 MB because the

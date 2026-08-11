@@ -56,9 +56,18 @@ jobs:
     name: Build documentation site
     runs-on: ubuntu-22.04
 
+    permissions:
+      contents: read
+      pages: write
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
 
       - name: Set up Python
         uses: actions/setup-python@v5
