@@ -336,6 +336,24 @@ dispatch, and only accounts with push access can create a tag, so the exposure
 is closed. **Do not add a `pull_request` trigger to this workflow**, and do not
 move its job into a workflow that has one.
 
+### Uploading the archive
+
+The archive runs to roughly 780 MB, and on a domestic upstream link that takes
+about sixteen minutes per transfer. Two consequences shaped the last two steps.
+
+The workflow artifact is produced only for manually dispatched runs. On a tag
+the archive is attached to the release, where it is public and permanent, so a
+second copy in the artifact store bought nothing and cost a measured sixteen
+minutes.
+
+The release upload does not trust its own exit code. `gh` can time out waiting
+for the response on a transfer that long and retry, and the retry fails with
+`HTTP 422 ReleaseAsset.name already exists` even though the first attempt
+succeeded. The step therefore queries the release afterwards and compares the
+attached asset's size against the local file, which is the only statement that
+actually matters. This is worth generalising: for a slow, large, network-bound
+operation, verify the end state rather than believing the command.
+
 ### Without a runner
 
 Until a machine is registered, a `v*` tag will create a run for this workflow

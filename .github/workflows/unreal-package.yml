@@ -171,18 +171,43 @@ jobs:
           if (Test-Path $env:PACKAGE_ZIP) { Remove-Item -LiteralPath $env:PACKAGE_ZIP -Force }
           Compress-Archive -Path "$env:PACKAGE_DIR\*" -DestinationPath $env:PACKAGE_ZIP
 
+      # Only for manually dispatched runs. On a tag the archive goes to the
+      # release, and keeping a second copy in the artifact store cost a measured
+      # 16 minutes of upload for no benefit.
       - name: Upload package artifact
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         uses: actions/upload-artifact@v4
         with:
           name: AirSimPlugin-Win64
           path: ${{ env.PACKAGE_ZIP }}
           if-no-files-found: error
 
+      # Uploading roughly 780 MB takes long enough that gh can time out waiting
+      # for the response and retry, and the retry fails with HTTP 422
+      # "ReleaseAsset.name already exists" even though the first attempt landed.
+      # The exit code therefore does not describe the outcome, so the end state
+      # is checked directly.
       - name: Attach the package to the release
         if: startsWith(github.ref, 'refs/tags/')
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
+          $name = Split-Path $env:PACKAGE_ZIP -Leaf
+          $expected = (Get-Item -LiteralPath $env:PACKAGE_ZIP).Length
+
           gh release upload "$env:GITHUB_REF_NAME" "$env:PACKAGE_ZIP" --clobber
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $uploadExit = $LASTEXITCODE
+
+          $assets = (gh release view "$env:GITHUB_REF_NAME" --json assets | ConvertFrom-Json).assets
+          $match = $assets | Where-Object { $_.name -eq $name }
+
+          if ($match -and $match.size -eq $expected) {
+            Write-Host "$name is attached at $($match.size) bytes"
+          }
+          elseif ($match) {
+            throw "$name is attached but its size is $($match.size), expected $expected"
+          }
+          else {
+            throw "$name was not attached to $env:GITHUB_REF_NAME (gh exited $uploadExit)"
+          }
