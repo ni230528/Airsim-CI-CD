@@ -104,17 +104,48 @@ jobs:
       # Both plugins are packaged: docs/packaging.md states that an AirSim-only
       # set is incomplete because the equirectangular preview shaders live in
       # AirSimShaders.
+      #
+      # AirSim.uplugin lists AirSimShaders under "Plugins", and BuildPlugin
+      # compiles inside a temporary host project that contains only the plugin
+      # being packaged, so AirSim on its own fails with "Unable to find plugin
+      # 'AirSimShaders'". The host project directory is wiped at the start of
+      # every BuildPlugin run, so the dependency cannot be placed there and is
+      # staged in the engine's plugin directory instead. AirSimShaders is
+      # packaged first, while no copy of it exists in the engine, because two
+      # plugins of the same name visible at once is itself an error.
       - name: Package the plugins
         run: |
           $runUat = Join-Path $env:UE_ROOT "Engine\Build\BatchFiles\RunUAT.bat"
+          $blocksPlugins = Join-Path $PWD "Unreal\Environments\Blocks\Plugins"
+          $marketplace = Join-Path $env:UE_ROOT "Engine\Plugins\Marketplace"
+          $engineStage = Join-Path $marketplace "AirSimShaders"
+
           if (Test-Path $env:PACKAGE_DIR) { Remove-Item -LiteralPath $env:PACKAGE_DIR -Recurse -Force }
+          if (Test-Path $engineStage) { Remove-Item -LiteralPath $engineStage -Recurse -Force }
+
           foreach ($name in @("AirSim", "AirSimShaders")) {
-            $plugin = Join-Path $PWD "Unreal\Environments\Blocks\Plugins\$name\$name.uplugin"
-            if (-not (Test-Path $plugin)) { throw "Plugin descriptor not found at $plugin" }
-            $out = Join-Path $env:PACKAGE_DIR $name
-            Write-Host "Packaging $name"
-            & $runUat BuildPlugin "-Plugin=$plugin" "-Package=$out" -Rocket "-TargetPlatforms=$env:TARGET_PLATFORMS"
-            if ($LASTEXITCODE -ne 0) { throw "BuildPlugin failed for $name with exit code $LASTEXITCODE" }
+            $descriptor = Join-Path $blocksPlugins "$name\$name.uplugin"
+            if (-not (Test-Path $descriptor)) { throw "Plugin descriptor not found at $descriptor" }
+          }
+
+          Write-Host "Packaging AirSimShaders"
+          & $runUat BuildPlugin "-Plugin=$blocksPlugins\AirSimShaders\AirSimShaders.uplugin" "-Package=$env:PACKAGE_DIR\AirSimShaders" -Rocket "-TargetPlatforms=$env:TARGET_PLATFORMS"
+          if ($LASTEXITCODE -ne 0) { throw "BuildPlugin failed for AirSimShaders with exit code $LASTEXITCODE" }
+
+          try {
+            if (-not (Test-Path $marketplace)) { New-Item -ItemType Directory -Path $marketplace | Out-Null }
+            Write-Host "Staging AirSimShaders at $engineStage"
+            Copy-Item -Path (Join-Path $blocksPlugins "AirSimShaders") -Destination $engineStage -Recurse -Force
+
+            Write-Host "Packaging AirSim"
+            & $runUat BuildPlugin "-Plugin=$blocksPlugins\AirSim\AirSim.uplugin" "-Package=$env:PACKAGE_DIR\AirSim" -Rocket "-TargetPlatforms=$env:TARGET_PLATFORMS"
+            if ($LASTEXITCODE -ne 0) { throw "BuildPlugin failed for AirSim with exit code $LASTEXITCODE" }
+          }
+          finally {
+            if (Test-Path $engineStage) {
+              Write-Host "Removing staged AirSimShaders from the engine"
+              Remove-Item -LiteralPath $engineStage -Recurse -Force
+            }
           }
 
       - name: Verify the packaged plugins

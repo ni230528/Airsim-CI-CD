@@ -291,6 +291,23 @@ explicit that an `AirSim`-only set is incomplete, because the equirectangular
 preview shaders live in the second plugin, and the archive is laid out so its
 contents drop straight into a project's `Plugins` directory.
 
+The two are not interchangeable in order. `AirSim.uplugin` lists
+`AirSimShaders` under `Plugins`, and `RunUAT BuildPlugin` compiles inside a
+temporary host project containing only the plugin being packaged, so packaging
+`AirSim` by itself stops with `Unable to find plugin 'AirSimShaders'`. The
+command has no option for supplying an extra plugin directory, and it deletes
+the package directory at the start of every run, so the dependency cannot be
+placed in the host project either. The job therefore packages `AirSimShaders`
+first, copies it into the engine's `Plugins/Marketplace` directory so the
+second build can resolve it, and removes that copy afterwards in a `finally`
+block. `AirSimShaders` has to be packaged before the copy exists, because two
+plugins of the same name visible at once is itself an error.
+
+This means the runner needs write access to the engine's `Plugins` directory.
+An Epic Games Launcher install normally grants that to the installing user, so
+elevation is not required, but a machine where Unreal was installed by someone
+else may need the permission granted explicitly.
+
 There is no `Build.bat BlocksEditor` step. The documented procedure goes
 straight from the plugin sync to `RunUAT BuildPlugin`, which compiles the
 plugin itself; building the editor target first added twenty to forty minutes
