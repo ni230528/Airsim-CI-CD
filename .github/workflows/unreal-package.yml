@@ -47,7 +47,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Verify the toolchain
         run: |
@@ -176,7 +176,7 @@ jobs:
       # 16 minutes of upload for no benefit.
       - name: Upload package artifact
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: AirSimPlugin-Win64
           path: ${{ env.PACKAGE_ZIP }}

@@ -140,6 +140,34 @@ individual test cases fail; `colcon test-result` is what turns a failing test
 into a red pipeline. Test reports are uploaded as `ros2-test-results` whether
 the job passed or failed.
 
+## Verifying that the checks fail
+
+A green pipeline only means nothing reported a problem, which is also what a
+pipeline that checks nothing looks like. Each check was therefore given a fault
+it is supposed to catch, and confirmed to reject it.
+
+| Injected fault | Caught by | Result |
+| --- | --- | --- |
+| A file containing `<<<<<<< HEAD` | `check_repo_text.py` | exit 1 |
+| A workflow job with no `runs-on` | `validate_ci_yaml.py` | exit 1 |
+| A Python file with a syntax error | `compileall` | exit 1 |
+| A `nav` entry pointing at a missing page | `mkdocs build --strict` | exit 1 |
+| An unresolvable dependency in `pyproject.toml` | installing the wheel | exit 1 |
+
+The last one is the most informative. `python -m build` still succeeded and
+produced a wheel; only the step that installs that wheel into a clean
+virtualenv rejected it. A pipeline that stopped at "the package builds" would
+have published something nobody could install.
+
+Every check was then run again against the unmodified tree and passed, which is
+the half of the experiment that is easy to skip: a check that always fails
+would also have caught all five faults.
+
+The ROS 2 side needed no injection. During development `px4_msgs` was pinned to
+a revision whose `SensorGps` layout did not match `px4_schema.py`, eleven tests
+failed, and the job went red - a live demonstration that `colcon test-result`
+does what it is there for, since `colcon test` alone exits 0 on failing tests.
+
 ## Release
 
 `release.yml` is triggered by pushing a `v*` tag. A tag rather than a branch is
