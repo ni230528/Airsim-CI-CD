@@ -42,7 +42,11 @@ jobs:
     env:
       UE_ROOT: ${{ inputs.ue_root || 'C:\Program Files\Epic Games\UE_5.5' }}
       TARGET_PLATFORMS: ${{ inputs.target_platforms || 'Win64' }}
-      PACKAGE_DIR: ${{ github.workspace }}\artifacts\AirSimPlugin
+      # The plugins are packaged into a directory literally named Plugins so the
+      # archive extracts to Plugins/AirSim and Plugins/AirSimShaders, which is
+      # the layout an Unreal project expects. Dropping the extracted folder into
+      # the project root is then the whole installation.
+      PACKAGE_DIR: ${{ github.workspace }}\artifacts\AirSimPlugin\Plugins
       PACKAGE_ZIP: ${{ github.workspace }}\artifacts\AirSimPlugin-Win64.zip
 
     steps:
@@ -166,10 +170,13 @@ jobs:
           Write-Host "Packaged plugin set size: $([math]::Round($size / 1MB, 1)) MB"
           if ($size -lt 1MB) { throw "Packaged plugin set is implausibly small" }
 
+      # -Path on the directory itself, not on its contents: that is what puts the
+      # Plugins folder inside the archive instead of its two children at the top
+      # level.
       - name: Compress the package
         run: |
           if (Test-Path $env:PACKAGE_ZIP) { Remove-Item -LiteralPath $env:PACKAGE_ZIP -Force }
-          Compress-Archive -Path "$env:PACKAGE_DIR\*" -DestinationPath $env:PACKAGE_ZIP
+          Compress-Archive -Path $env:PACKAGE_DIR -DestinationPath $env:PACKAGE_ZIP
 
       # Only for manually dispatched runs. On a tag the archive goes to the
       # release, and keeping a second copy in the artifact store cost a measured

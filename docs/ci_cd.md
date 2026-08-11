@@ -316,8 +316,22 @@ exit codes below 8, so only 8 and above are treated as a failure.
 
 Both `AirSim` and `AirSimShaders` are packaged. [Packaging](packaging.md) is
 explicit that an `AirSim`-only set is incomplete, because the equirectangular
-preview shaders live in the second plugin, and the archive is laid out so its
-contents drop straight into a project's `Plugins` directory.
+preview shaders live in the second plugin.
+
+The archive contains a single `Plugins` directory holding both:
+
+```
+AirSimPlugin-Win64.zip
+└── Plugins/
+    ├── AirSim/
+    └── AirSimShaders/
+```
+
+Installing is then moving that one extracted folder into the project root next
+to the `.uproject`, rather than creating `Plugins` by hand and remembering to
+move two folders into it. The layout comes from passing the directory itself to
+`Compress-Archive`; passing `<directory>\*` instead would place the two plugins
+at the root of the archive.
 
 The two are not interchangeable in order. `AirSim.uplugin` lists
 `AirSimShaders` under `Plugins`, and `RunUAT BuildPlugin` compiles inside a
