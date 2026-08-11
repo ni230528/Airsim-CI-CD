@@ -146,41 +146,38 @@ the job passed or failed.
 the trigger because a tag names exactly one commit, so every published artifact
 is traceable back to a single source state.
 
-It has five jobs. The three build jobs run in parallel; the two publishing jobs
+It has four jobs. The two build jobs run in parallel; the two publishing jobs
 wait on them through `needs:`.
 
 | Job | Produces |
 | --- | --- |
 | `python_client` | sdist and wheel from `PythonClient` |
-| `docs_site` | the rendered documentation, as a Pages artifact |
-| `deploy_docs` | publishes that artifact to GitHub Pages |
 | `ros2_image` | container image published to GitHub Container Registry |
 | `promote_field` | retags the verified image as `:field` behind an approval gate |
 | `publish_release` | the GitHub Release itself |
 
-`deploy_docs` deploys into the `github-pages` environment, which GitHub manages
-itself. Pages must be enabled for the repository with its source set to GitHub
-Actions, under Settings -> Pages, before this job can succeed; otherwise
-`actions/deploy-pages` fails with a 404 and the message
-`Ensure GitHub Pages has been enabled`.
+Documentation is not published by this pipeline. It is still validated on every
+push and pull request, because `static_checks` runs `mkdocs build --strict`, so
+a broken link or a missing page fails CI exactly as before. Only the publishing
+step is absent, and the Markdown sources render on GitHub anyway.
 
-That step cannot be automated with the workflow's own token.
+Two earlier attempts are worth recording, because both were abandoned for
+reasons rather than for difficulty. Attaching the rendered site to the release
+as `docs-site.tar.gz` produced a 127 MB asset on every release, since the `docs`
+directory is almost entirely images, and a tarball is a poor way to read
+documentation. Deploying to GitHub Pages instead requires Pages to be enabled
+with its source set to GitHub Actions, which the workflow cannot do for itself:
 `actions/configure-pages` with `enablement: true` fails as
-`Resource not accessible by integration`: `GITHUB_TOKEN` can deploy to Pages
-with `pages: write`, but creating the Pages site needs repository admin rights.
-Automating it would mean storing a long-lived personal access token with admin
-scope, which is a worse trade than enabling the setting once.
+`Resource not accessible by integration`, because `GITHUB_TOKEN` can deploy to
+Pages but not create the site, and automating it would mean keeping a
+long-lived admin-scoped token in secrets.
 
-`publish_release` does not depend on `docs_site`. Documentation is deployed to
-Pages rather than attached to the release, so a Pages problem must not block
-publishing the wheel and the container image. An earlier version kept the
-dependency from when the release carried a documentation tarball, and a failing
-docs build silently skipped the whole release.
-
-Documentation is deployed rather than attached to the release. An earlier
-version shipped a `docs-site.tar.gz` asset, which came to 127 MB because the
-`docs` directory is mostly images; every release would have carried that
-weight, and a tarball is a poor way to read documentation compared with a URL.
+That episode did leave one lasting correction. `publish_release` had listed the
+documentation job in `needs:` from the days when the release carried the
+tarball, so when the docs job failed the entire release was skipped and a tag
+produced nothing at all. A `needs:` entry states that a job consumes another
+job's output, not that it would like that job to have passed; a stale one
+quietly widens the blast radius of unrelated failures.
 
 ### ros2_image
 

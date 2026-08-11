@@ -52,51 +52,6 @@ jobs:
           path: PythonClient/dist/*
           if-no-files-found: error
 
-  docs_site:
-    name: Build documentation site
-    runs-on: ubuntu-22.04
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-          cache: pip
-          cache-dependency-path: tools/ci/requirements.txt
-
-      - name: Install CI tooling
-        run: python -m pip install --upgrade pip -r tools/ci/requirements.txt
-
-      - name: Build site
-        run: mkdocs build --strict --site-dir site
-
-      - name: Upload site as a Pages artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: site
-
-  deploy_docs:
-    name: Deploy documentation to Pages
-    needs: docs_site
-    if: startsWith(github.ref, 'refs/tags/')
-    runs-on: ubuntu-22.04
-
-    permissions:
-      pages: write
-      id-token: write
-
-    environment:
-      name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}
-
-    steps:
-      - name: Deploy to GitHub Pages
-        id: deploy
-        uses: actions/deploy-pages@v4
-
   ros2_image:
     name: Build and publish ROS 2 image
     runs-on: ubuntu-22.04
@@ -205,8 +160,6 @@ jobs:
             echo '```'
             echo
             echo "Built against px4_msgs \`${PX4_MSGS_REF}\` on ROS 2 \`${ROS_DISTRO}\`."
-            echo
-            echo "Documentation: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/"
             echo "RELEASE_NOTES_EOF"
           } >> "$GITHUB_ENV"
 
