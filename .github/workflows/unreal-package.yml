@@ -133,9 +133,15 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "BuildPlugin failed for AirSimShaders with exit code $LASTEXITCODE" }
 
           try {
+            # The packaged output is staged rather than the sources. An
+            # installed engine never compiles its own plugins, so a source-only
+            # copy leaves the linker looking for an import library nobody built:
+            # LNK1181 on
+            # Plugins\Marketplace\AirSimShaders\Intermediate\Build\Win64\x64\UnrealEditor\Development\AirSimShaders\UnrealEditor-AirSimShaders.lib
+            # The packaged plugin carries that exact path already.
             if (-not (Test-Path $marketplace)) { New-Item -ItemType Directory -Path $marketplace | Out-Null }
             Write-Host "Staging AirSimShaders at $engineStage"
-            Copy-Item -Path (Join-Path $blocksPlugins "AirSimShaders") -Destination $engineStage -Recurse -Force
+            Copy-Item -Path (Join-Path $env:PACKAGE_DIR "AirSimShaders") -Destination $engineStage -Recurse -Force
 
             Write-Host "Packaging AirSim"
             & $runUat BuildPlugin "-Plugin=$blocksPlugins\AirSim\AirSim.uplugin" "-Package=$env:PACKAGE_DIR\AirSim" -Rocket "-TargetPlatforms=$env:TARGET_PLATFORMS"

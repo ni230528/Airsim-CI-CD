@@ -303,6 +303,13 @@ second build can resolve it, and removes that copy afterwards in a `finally`
 block. `AirSimShaders` has to be packaged before the copy exists, because two
 plugins of the same name visible at once is itself an error.
 
+What gets staged is the packaged output, not the sources. An installed engine
+never compiles the plugins under its own `Plugins` directory, so a source-only
+copy leaves the linker looking for an import library that nothing produced, and
+the AirSim build fails with `LNK1181` on
+`Plugins\Marketplace\AirSimShaders\Intermediate\Build\...\UnrealEditor-AirSimShaders.lib`.
+The packaged plugin already contains that file at exactly that relative path.
+
 This means the runner needs write access to the engine's `Plugins` directory.
 An Epic Games Launcher install normally grants that to the installing user, so
 elevation is not required, but a machine where Unreal was installed by someone
