@@ -275,6 +275,27 @@ That machine needs:
 - the GitHub CLI, used to attach the asset;
 - roughly 150-200 GB of free disk.
 
+The job does not run `update_from_git.bat`, even though
+[Packaging](packaging.md) describes it as the way to refresh the Blocks
+project. That script copies the plugins and then calls
+`GenerateProjectFiles.bat`, which finds UnrealVersionSelector through the
+`.uproject` file association in the registry; a build machine where Unreal was
+never registered as the handler for `.uproject` fails there. The generated
+`.sln` only matters for opening the project in an IDE, and
+`RunUAT BuildPlugin` does not need it, so the workflow performs the copy
+directly with `robocopy` instead. Note that `robocopy` signals success with
+exit codes below 8, so only 8 and above are treated as a failure.
+
+Both `AirSim` and `AirSimShaders` are packaged. [Packaging](packaging.md) is
+explicit that an `AirSim`-only set is incomplete, because the equirectangular
+preview shaders live in the second plugin, and the archive is laid out so its
+contents drop straight into a project's `Plugins` directory.
+
+There is no `Build.bat BlocksEditor` step. The documented procedure goes
+straight from the plugin sync to `RunUAT BuildPlugin`, which compiles the
+plugin itself; building the editor target first added twenty to forty minutes
+and another way to fail without changing the artifact.
+
 The first step verifies all of this and fails with a specific message rather
 than letting a missing tool surface as a confusing compiler error an hour in.
 Visual Studio is located with `vswhere` instead of a hardcoded path, so the

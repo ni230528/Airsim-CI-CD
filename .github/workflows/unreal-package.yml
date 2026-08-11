@@ -34,8 +34,7 @@ jobs:
     timeout-minutes: 180
 
     # Windows PowerShell rather than pwsh: PowerShell 7 is present on
-    # GitHub-hosted runners but not on an ordinary Windows machine, and
-    # requiring it would add a prerequisite for no benefit here.
+    # GitHub-hosted runners but not on an ordinary Windows machine.
     defaults:
       run:
         shell: powershell
@@ -53,7 +52,7 @@ jobs:
       - name: Verify the toolchain
         run: |
           $batchFiles = Join-Path $env:UE_ROOT "Engine\Build\BatchFiles"
-          foreach ($file in @("RunUAT.bat", "Build.bat")) {
+          foreach ($file in @("RunUAT.bat")) {
             $path = Join-Path $batchFiles $file
             if (-not (Test-Path $path)) {
               throw "$file not found at $path. Set UE_ROOT to the Unreal Engine 5.5 installation."
@@ -83,37 +82,52 @@ jobs:
           call "%VSPATH%\Common7\Tools\VsDevCmd.bat" -arch=x64 || exit /b 1
           call build.cmd --no-full-poly-car --Release || exit /b 1
 
-      - name: Sync plugin into the Blocks project
+      # update_from_git.bat performs this copy and then runs
+      # GenerateProjectFiles.bat, which locates UnrealVersionSelector through the
+      # .uproject file association in the registry. A build machine without that
+      # association fails there, and the generated .sln is only needed to open
+      # the project in an IDE, which RunUAT BuildPlugin does not require. The
+      # copy is therefore done directly. robocopy reports success with exit
+      # codes below 8, so only 8 and above are treated as failure.
+      - name: Sync plugins into the Blocks project
         shell: cmd
         working-directory: Unreal\Environments\Blocks
-        run: update_from_git.bat ..\..\..
-
-      - name: Build the Blocks editor target
-        working-directory: Unreal\Environments\Blocks
         run: |
-          $build = Join-Path $env:UE_ROOT "Engine\Build\BatchFiles\Build.bat"
-          $project = Join-Path $PWD "Blocks.uproject"
-          & $build BlocksEditor Win64 Development "-Project=$project" -WaitMutex -NoHotReload
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          robocopy "%GITHUB_WORKSPACE%\Unreal\Plugins\AirSim" "Plugins\AirSim" /MIR /XD temp /njh /njs /ndl /np
+          if errorlevel 8 exit /b 1
+          robocopy "%GITHUB_WORKSPACE%\Unreal\Plugins\AirSimShaders" "Plugins\AirSimShaders" /MIR /XD temp /njh /njs /ndl /np
+          if errorlevel 8 exit /b 1
+          robocopy "%GITHUB_WORKSPACE%\AirLib" "Plugins\AirSim\Source\AirLib" /MIR /XD temp /njh /njs /ndl /np
+          if errorlevel 8 exit /b 1
+          exit /b 0
 
-      - name: Package the plugin
+      # Both plugins are packaged: docs/packaging.md states that an AirSim-only
+      # set is incomplete because the equirectangular preview shaders live in
+      # AirSimShaders.
+      - name: Package the plugins
         run: |
           $runUat = Join-Path $env:UE_ROOT "Engine\Build\BatchFiles\RunUAT.bat"
-          $plugin = Join-Path $PWD "Unreal\Environments\Blocks\Plugins\AirSim\AirSim.uplugin"
-          if (-not (Test-Path $plugin)) { throw "Plugin descriptor not found at $plugin" }
           if (Test-Path $env:PACKAGE_DIR) { Remove-Item -LiteralPath $env:PACKAGE_DIR -Recurse -Force }
-          & $runUat BuildPlugin "-Plugin=$plugin" "-Package=$env:PACKAGE_DIR" -Rocket "-TargetPlatforms=$env:TARGET_PLATFORMS"
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          foreach ($name in @("AirSim", "AirSimShaders")) {
+            $plugin = Join-Path $PWD "Unreal\Environments\Blocks\Plugins\$name\$name.uplugin"
+            if (-not (Test-Path $plugin)) { throw "Plugin descriptor not found at $plugin" }
+            $out = Join-Path $env:PACKAGE_DIR $name
+            Write-Host "Packaging $name"
+            & $runUat BuildPlugin "-Plugin=$plugin" "-Package=$out" -Rocket "-TargetPlatforms=$env:TARGET_PLATFORMS"
+            if ($LASTEXITCODE -ne 0) { throw "BuildPlugin failed for $name with exit code $LASTEXITCODE" }
+          }
 
-      - name: Verify the packaged plugin
+      - name: Verify the packaged plugins
         run: |
-          $descriptor = Join-Path $env:PACKAGE_DIR "AirSim.uplugin"
-          if (-not (Test-Path $descriptor)) { throw "Packaged plugin is missing AirSim.uplugin" }
-          $binaries = Join-Path $env:PACKAGE_DIR "Binaries"
-          if (-not (Test-Path $binaries)) { throw "Packaged plugin contains no Binaries directory" }
+          foreach ($name in @("AirSim", "AirSimShaders")) {
+            $dir = Join-Path $env:PACKAGE_DIR $name
+            $descriptor = Join-Path $dir "$name.uplugin"
+            if (-not (Test-Path $descriptor)) { throw "Packaged $name is missing $name.uplugin" }
+            if (-not (Test-Path (Join-Path $dir "Binaries"))) { throw "Packaged $name contains no Binaries directory" }
+          }
           $size = (Get-ChildItem -LiteralPath $env:PACKAGE_DIR -Recurse -File | Measure-Object -Property Length -Sum).Sum
-          Write-Host "Packaged plugin size: $([math]::Round($size / 1MB, 1)) MB"
-          if ($size -lt 1MB) { throw "Packaged plugin is implausibly small" }
+          Write-Host "Packaged plugin set size: $([math]::Round($size / 1MB, 1)) MB"
+          if ($size -lt 1MB) { throw "Packaged plugin set is implausibly small" }
 
       - name: Compress the package
         run: |
