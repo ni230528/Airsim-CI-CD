@@ -5,6 +5,13 @@ on:
   push:
     branches:
       - main
+  # The pipeline resolves apt packages, pulls a mutable base image tag and
+  # fetches px4_msgs at build time, so it can break with no commit to blame.
+  # A nightly run dates the breakage instead of leaving it for whoever pushes
+  # next. 18:27 UTC is early morning in Asia/Ho_Chi_Minh, and an off-the-hour
+  # minute avoids the queue that forms when every cron fires at :00.
+  schedule:
+    - cron: "27 18 * * *"
   workflow_dispatch:
     inputs:
       px4_msgs_ref:
@@ -141,12 +148,18 @@ jobs:
           echo "version=${version}" >> "$GITHUB_OUTPUT"
           echo "ros-${ROS_DISTRO}-ros-base ${version}"
 
+      # The scheduled run never uses the cache. Its entire purpose is to notice
+      # that the workspace no longer builds against current upstream state, and
+      # a restored build tree is exactly the thing that hides that.
       - name: Decide whether to use the build cache
         id: cachegate
         run: |
           if [ "${{ inputs.clean_build }}" = "true" ]; then
             echo "use_cache=false" >> "$GITHUB_OUTPUT"
             echo "clean_build requested: building from scratch"
+          elif [ "${{ github.event_name }}" = "schedule" ]; then
+            echo "use_cache=false" >> "$GITHUB_OUTPUT"
+            echo "scheduled run: building from scratch to detect upstream drift"
           else
             echo "use_cache=true" >> "$GITHUB_OUTPUT"
             echo "using the colcon build cache"

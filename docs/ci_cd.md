@@ -1,15 +1,21 @@
 # CI/CD
 
-Automation for this repository is GitHub Actions only. Two workflows live in
+Automation for this repository is GitHub Actions only. Three workflows live in
 `.github/workflows`:
 
 | Workflow | File | Runs on |
 | --- | --- | --- |
-| CI | `ci.yml` | every pull request, every push to `main`, manual dispatch |
+| CI | `ci.yml` | every pull request, every push to `main`, nightly, manual dispatch |
 | Release | `release.yml` | every `v*` tag, manual dispatch |
+| Unreal Plugin Package | `unreal-package.yml` | every `v*` tag, manual dispatch |
 
-Everything runs on GitHub-hosted runners. No self-hosted machine, no GPU and
-no Unreal Engine installation is required to get a green pipeline.
+`.github/dependabot.yml` opens the pull requests that keep the pinned action
+and tooling versions from going stale.
+
+CI and Release run entirely on GitHub-hosted runners. No self-hosted machine,
+no GPU and no Unreal Engine installation is required to get a green pipeline;
+only the plugin package needs one, and it is kept out of the release path for
+exactly that reason.
 
 ## CI
 
@@ -139,6 +145,47 @@ The second command is not redundant. `colcon test` exits 0 even when
 individual test cases fail; `colcon test-result` is what turns a failing test
 into a red pipeline. Test reports are uploaded as `ros2-test-results` whether
 the job passed or failed.
+
+### The nightly run
+
+Every trigger above is caused by a person. That leaves a gap, because the
+pipeline depends on state that no commit here controls:
+
+| Dependency | Moves without a commit |
+| --- | --- |
+| `ros:humble-ros-base` | a mutable tag; Ubuntu and ROS packages are rebuilt into it |
+| `rosdep install` | resolves against live apt indexes at run time |
+| `actions/*` | GitHub retires runner images and Node versions on its own schedule |
+| `pip install` | resolves the CI tooling from PyPI |
+
+Without a scheduled run the first person to push after any of those changes
+inherits the failure, and the obvious suspect is their own diff. `ci.yml`
+therefore runs at 18:27 UTC daily. The value is not that it catches more
+breakage; it is that it dates the breakage.
+
+That run ignores the build cache. A restored `ros2/build` tree is precisely
+what would hide a workspace that no longer compiles against current upstream
+state, so `github.event_name == 'schedule'` takes the same branch as the
+`clean_build` input. It costs the full six minutes, once a night.
+
+Two properties of scheduled workflows are worth knowing. They only ever run on
+the repository's default branch, so a change to the `cron` line does nothing
+until it is merged. And GitHub disables them automatically after 60 days with
+no repository activity, which is a reasonable default and a surprising one the
+first time a nightly run stops silently.
+
+### Dependency updates
+
+`.github/dependabot.yml` raises pull requests for the pinned action versions
+weekly and for `tools/ci/requirements.txt` monthly. Both are grouped, so a week
+of updates arrives as one pull request that runs CI once rather than four that
+each run it separately.
+
+This exists because the alternative was already tried: the action versions in
+this repository were last raised by hand, in a single commit, after a
+deprecation warning appeared in a run log. By then the pins had been stale for
+months. Dependabot moves the trigger from "somebody noticed a warning" to a
+schedule, and CI still decides whether the update is safe to take.
 
 ## Verifying that the checks fail
 
@@ -302,6 +349,20 @@ That machine needs:
   are set;
 - the GitHub CLI, used to attach the asset;
 - roughly 150-200 GB of free disk.
+
+Register the runner as a Windows service rather than leaving `run.cmd` in a
+console window:
+
+```powershell
+.\svc.cmd install
+.\svc.cmd start
+```
+
+Run from an elevated prompt in the runner directory. `run.cmd` stops listening
+the moment the window closes or the user logs out, and the failure it produces
+is not an error: the tag creates a run that sits at "Waiting for a runner to
+pick up this job" until somebody notices. One such run queued for two hours.
+`timeout-minutes` does not help, because queue time is not job time.
 
 The job does not run `update_from_git.bat`, even though
 [Packaging](packaging.md) describes it as the way to refresh the Blocks

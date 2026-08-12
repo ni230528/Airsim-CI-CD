@@ -1,0 +1,47 @@
+version: 2
+
+# Action versions were last raised by hand, in one commit, after a deprecation
+# notice appeared in a run log. That is the wrong trigger: by the time GitHub
+# warns, the pin has already been stale for months. Dependabot opens the pull
+# request instead, and CI decides whether it is safe to take.
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "02:00"
+      timezone: Asia/Ho_Chi_Minh
+    # Every action lands in one pull request rather than four. Action bumps are
+    # almost always taken or rejected together, and one PR runs CI once.
+    groups:
+      actions:
+        patterns:
+          - "*"
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: ci
+
+  # The CI tooling pins are exact versions, which makes builds reproducible and
+  # makes them rot silently. This is the file that unpins them on a schedule.
+  #
+  # PythonClient is deliberately not covered: its dependencies belong to the
+  # published package rather than to CI, and bumping them is a maintainer
+  # decision about what the client supports, not a build-hygiene one.
+  #
+  # docker/Dockerfile_ros2 is not covered either: its FROM line is
+  # ros:${ROS_DISTRO}-ros-base, and Dependabot cannot resolve a tag built from
+  # a build argument. The base image is pinned by ROS_DISTRO instead, and the
+  # nightly CI run is what reports drift in it.
+  - package-ecosystem: pip
+    directory: /tools/ci
+    schedule:
+      interval: monthly
+      timezone: Asia/Ho_Chi_Minh
+    groups:
+      ci-tooling:
+        patterns:
+          - "*"
+    open-pull-requests-limit: 2
+    commit-message:
+      prefix: ci
